@@ -26,8 +26,8 @@ let onlineUsers = new Set();
 
 // Admin credentials
 const ADMIN_USERS = {
-  'ADMIN': 'admin123',
-  'ADITYA': 'aditya123'
+  'Aditya': 'Aditya',
+  'Friend': 'Friend'
 };
 
 // Routes
@@ -161,4 +161,5 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📱 Access from any device: http://YOUR_IP_ADDRESS:${PORT}`);
   console.log(`💻 Local access: http://localhost:${PORT}`);
+
 });
