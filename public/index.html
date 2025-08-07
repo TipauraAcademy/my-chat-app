@@ -136,7 +136,6 @@
             display: flex;
             flex-direction: column;
             gap: 10px;
-            /* Enable momentum scrolling on iOS */
             -webkit-overflow-scrolling: touch;
         }
 
@@ -198,7 +197,6 @@
             border-top: 1px solid #eee;
             position: sticky;
             bottom: 0;
-            /* Ensure it stays above keyboard on mobile */
             z-index: 100;
         }
 
@@ -215,7 +213,6 @@
             border-radius: 25px;
             font-size: 16px;
             outline: none;
-            /* Prevent zoom on iOS */
             font-size: 16px;
             -webkit-appearance: none;
         }
@@ -432,7 +429,6 @@
             background: #5a6268;
         }
 
-        /* Mobile-specific styles */
         .close-sidebar {
             display: block;
             position: absolute;
@@ -448,13 +444,11 @@
             cursor: pointer;
         }
 
-        /* Ensure proper touch targets */
         button, .user-item, .message-image {
             min-height: 44px;
             min-width: 44px;
         }
 
-        /* Loading spinner */
         .spinner {
             display: inline-block;
             width: 20px;
@@ -470,7 +464,6 @@
             100% { transform: rotate(360deg); }
         }
 
-        /* Safe area handling for notched phones */
         .chat-header {
             padding-top: max(15px, env(safe-area-inset-top));
         }
@@ -479,7 +472,6 @@
             padding-bottom: max(15px, env(safe-area-inset-bottom));
         }
 
-        /* Prevent zoom on input focus */
         @media screen and (max-width: 768px) {
             input[type="text"], 
             input[type="password"], 
@@ -491,7 +483,6 @@
             }
         }
 
-        /* Dark theme media query for better visibility */
         @media (prefers-color-scheme: dark) {
             .message.other {
                 background: #2c3e50;
@@ -583,6 +574,8 @@
 
         // Initialize app
         document.addEventListener('DOMContentLoaded', function() {
+            console.log('App initialized');
+            
             // Prevent zoom on double tap
             let lastTouchEnd = 0;
             document.addEventListener('touchend', function (event) {
@@ -596,43 +589,45 @@
             // Check for saved auth
             const savedAuth = localStorage.getItem('chatAuth');
             if (savedAuth) {
-                const authData = JSON.parse(savedAuth);
-                currentUser = authData.user;
-                if (currentUser) {
-                    showChatScreen();
-                    initializeSocket();
+                try {
+                    const authData = JSON.parse(savedAuth);
+                    currentUser = authData.user;
+                    if (currentUser) {
+                        showChatScreen();
+                        initializeSocket();
+                    }
+                } catch (e) {
+                    console.error('Error parsing saved auth:', e);
+                    localStorage.removeItem('chatAuth');
                 }
             }
 
             // Event listeners
-            document.getElementById('loginForm').addEventListener('submit', handleLogin);
+            const loginForm = document.getElementById('loginForm');
+            if (loginForm) {
+                loginForm.addEventListener('submit', handleLogin);
+            }
             
             const messageInput = document.getElementById('messageInput');
-            messageInput.addEventListener('keypress', function(e) {
-                if (e.key === 'Enter') {
-                    e.preventDefault();
-                    sendMessage();
-                }
-                handleTyping();
-            });
-            
-            // Auto-resize input on mobile
-            messageInput.addEventListener('input', function() {
-                this.style.height = 'auto';
-                this.style.height = Math.min(this.scrollHeight, 120) + 'px';
-            });
-            
-            document.getElementById('imageInput').addEventListener('change', handleImageSelect);
-            
-            // Close sidebar when clicking outside
-            document.addEventListener('click', function(e) {
-                const sidebar = document.getElementById('sidebar');
-                const menuBtn = document.querySelector('.menu-btn');
+            if (messageInput) {
+                messageInput.addEventListener('keypress', function(e) {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        sendMessage();
+                    }
+                    handleTyping();
+                });
                 
-                if (!sidebar.contains(e.target) && !menuBtn.contains(e.target)) {
-                    closeSidebar();
-                }
-            });
+                messageInput.addEventListener('input', function() {
+                    this.style.height = 'auto';
+                    this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+                });
+            }
+            
+            const imageInput = document.getElementById('imageInput');
+            if (imageInput) {
+                imageInput.addEventListener('change', handleImageSelect);
+            }
 
             // Handle screen orientation change
             window.addEventListener('orientationchange', function() {
@@ -645,27 +640,37 @@
             const sidebar = document.getElementById('sidebar');
             const overlay = document.getElementById('sidebarOverlay');
             
-            sidebar.classList.toggle('open');
-            overlay.classList.toggle('active');
+            if (sidebar && overlay) {
+                sidebar.classList.toggle('open');
+                overlay.classList.toggle('active');
+            }
         }
 
         function closeSidebar() {
             const sidebar = document.getElementById('sidebar');
             const overlay = document.getElementById('sidebarOverlay');
             
-            sidebar.classList.remove('open');
-            overlay.classList.remove('active');
+            if (sidebar && overlay) {
+                sidebar.classList.remove('open');
+                overlay.classList.remove('active');
+            }
         }
 
         function scrollToBottom() {
             const container = document.getElementById('messagesContainer');
-            container.scrollTop = container.scrollHeight;
+            if (container) {
+                container.scrollTop = container.scrollHeight;
+            }
         }
 
         async function handleLogin(e) {
             e.preventDefault();
+            console.log('Login form submitted');
+            
             const username = document.getElementById('username').value;
             const password = document.getElementById('password').value;
+            
+            console.log('Attempting login for:', username);
 
             try {
                 const response = await fetch('/api/auth', {
@@ -676,7 +681,9 @@
                     body: JSON.stringify({ username, password })
                 });
 
+                console.log('Login response status:', response.status);
                 const result = await response.json();
+                console.log('Login result:', result);
 
                 if (result.success) {
                     currentUser = result.user;
@@ -687,34 +694,52 @@
                     showAuthError(result.message);
                 }
             } catch (error) {
+                console.error('Login error:', error);
                 showAuthError('Connection error. Please try again.');
             }
         }
 
         function showAuthError(message) {
             const errorDiv = document.getElementById('authError');
-            errorDiv.textContent = message;
-            errorDiv.style.display = 'block';
+            if (errorDiv) {
+                errorDiv.textContent = message;
+                errorDiv.style.display = 'block';
+            }
         }
 
         function showChatScreen() {
-            document.getElementById('authScreen').classList.add('hidden');
-            document.getElementById('chatScreen').classList.remove('hidden');
-            document.getElementById('currentUser').textContent = 
-                `${currentUser.username} ${currentUser.isAdmin ? '(Admin)' : ''}`;
+            const authScreen = document.getElementById('authScreen');
+            const chatScreen = document.getElementById('chatScreen');
+            const currentUserSpan = document.getElementById('currentUser');
             
-            if (currentUser.isAdmin) {
-                document.getElementById('adminPanel').classList.remove('hidden');
-                loadAllUsers();
+            if (authScreen) authScreen.classList.add('hidden');
+            if (chatScreen) chatScreen.classList.remove('hidden');
+            if (currentUserSpan && currentUser) {
+                currentUserSpan.textContent = `${currentUser.username} ${currentUser.isAdmin ? '(Admin)' : ''}`;
+            }
+            
+            if (currentUser && currentUser.isAdmin) {
+                const adminPanel = document.getElementById('adminPanel');
+                if (adminPanel) {
+                    adminPanel.classList.remove('hidden');
+                    loadAllUsers();
+                }
             }
         }
 
         function initializeSocket() {
+            if (typeof io === 'undefined') {
+                console.error('Socket.IO not loaded');
+                return;
+            }
+            
             socket = io();
 
             socket.on('connect', () => {
                 console.log('Connected to server');
-                socket.emit('authenticate', currentUser);
+                if (currentUser) {
+                    socket.emit('authenticate', currentUser);
+                }
             });
 
             socket.on('messageReceived', (message) => {
@@ -736,7 +761,9 @@
             try {
                 const response = await fetch('/api/messages');
                 const messages = await response.json();
-                messages.forEach(message => displayMessage(message));
+                if (Array.isArray(messages)) {
+                    messages.forEach(message => displayMessage(message));
+                }
             } catch (error) {
                 console.error('Error loading messages:', error);
             }
@@ -744,22 +771,24 @@
 
         function displayMessage(message) {
             const messagesContainer = document.getElementById('messagesContainer');
+            if (!messagesContainer) return;
+            
             const messageDiv = document.createElement('div');
             
-            const isOwn = message.username === currentUser.username;
+            const isOwn = currentUser && message.username === currentUser.username;
             messageDiv.className = `message ${isOwn ? 'own' : 'other'} ${message.isAdmin ? 'admin' : ''}`;
 
             let content = '';
             if (!isOwn) {
-                content += `<div class="message-header">${message.username} ${message.isAdmin ? '(Admin)' : ''} - ${new Date(message.timestamp).toLocaleTimeString()}</div>`;
+                content += `<div class="message-header">${escapeHtml(message.username)} ${message.isAdmin ? '(Admin)' : ''} - ${new Date(message.timestamp).toLocaleTimeString()}</div>`;
             } else {
                 content += `<div class="message-header">${new Date(message.timestamp).toLocaleTimeString()}</div>`;
             }
 
             if (message.type === 'image') {
-                content += `<img src="${message.imageUrl}" alt="Image" class="message-image">`;
+                content += `<img src="${escapeHtml(message.imageUrl)}" alt="Image" class="message-image">`;
                 if (message.caption) {
-                    content += `<div>${message.caption}</div>`;
+                    content += `<div>${escapeHtml(message.caption)}</div>`;
                 }
             } else {
                 content += `<div>${escapeHtml(message.text)}</div>`;
@@ -767,14 +796,16 @@
 
             messageDiv.innerHTML = content;
             messagesContainer.appendChild(messageDiv);
-            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            scrollToBottom();
         }
 
         function sendMessage() {
             const input = document.getElementById('messageInput');
+            if (!input || !socket) return;
+            
             const message = input.value.trim();
             
-            if (message && socket) {
+            if (message) {
                 socket.emit('newMessage', { text: message });
                 input.value = '';
                 clearTyping();
@@ -794,8 +825,11 @@
             formData.append('image', file);
 
             try {
-                document.getElementById('sendButton').disabled = true;
-                document.getElementById('sendButton').textContent = 'Uploading...';
+                const sendButton = document.getElementById('sendButton');
+                if (sendButton) {
+                    sendButton.disabled = true;
+                    sendButton.textContent = 'Uploading...';
+                }
 
                 const response = await fetch('/api/upload-image', {
                     method: 'POST',
@@ -806,23 +840,31 @@
 
                 if (result.success) {
                     const caption = prompt('Add a caption (optional):');
-                    socket.emit('newImageMessage', {
-                        imageUrl: result.imageUrl,
-                        caption: caption || ''
-                    });
+                    if (socket) {
+                        socket.emit('newImageMessage', {
+                            imageUrl: result.imageUrl,
+                            caption: caption || ''
+                        });
+                    }
                 } else {
                     alert('Error uploading image: ' + result.message);
                 }
             } catch (error) {
+                console.error('Upload error:', error);
                 alert('Error uploading image');
             } finally {
-                document.getElementById('sendButton').disabled = false;
-                document.getElementById('sendButton').textContent = 'Send';
-                e.target.value = ''; // Reset file input
+                const sendButton = document.getElementById('sendButton');
+                if (sendButton) {
+                    sendButton.disabled = false;
+                    sendButton.textContent = 'Send';
+                }
+                e.target.value = '';
             }
         }
 
         function handleTyping() {
+            if (!socket) return;
+            
             if (!isTyping) {
                 isTyping = true;
                 socket.emit('typing', { isTyping: true });
@@ -835,7 +877,7 @@
         }
 
         function clearTyping() {
-            if (isTyping) {
+            if (isTyping && socket) {
                 isTyping = false;
                 socket.emit('typing', { isTyping: false });
             }
@@ -843,8 +885,10 @@
 
         function handleUserTyping(data) {
             const indicator = document.getElementById('typingIndicator');
+            if (!indicator) return;
+            
             if (data.isTyping) {
-                indicator.textContent = `${data.username} is typing...`;
+                indicator.textContent = `${escapeHtml(data.username)} is typing...`;
                 indicator.classList.remove('hidden');
             } else {
                 indicator.classList.add('hidden');
@@ -853,19 +897,117 @@
 
         function displayOnlineUsers(users) {
             const container = document.getElementById('onlineUsersList');
+            if (!container) return;
+            
             container.innerHTML = '';
             
             users.forEach(username => {
                 const userDiv = document.createElement('div');
-                const isAdmin = (username === 'Aditya' || currentUser.isAdmin && username === currentUser.username);
+                const isAdmin = (username === 'Aditya' || (currentUser && currentUser.isAdmin && username === currentUser.username));
                 userDiv.className = `user-item ${isAdmin ? 'admin' : ''}`;
                 userDiv.innerHTML = `
                     <span class="online-indicator"></span>
-                    ${username} ${isAdmin ? '(Admin)' : ''}
+                    ${escapeHtml(username)} ${isAdmin ? '(Admin)' : ''}
                 `;
                 container.appendChild(userDiv);
             });
         }
 
-        // Admin functions
-        function showAddUser
+        function showAddUserModal() {
+            const modal = document.getElementById('addUserModal');
+            if (modal) {
+                modal.classList.remove('hidden');
+            }
+        }
+
+        function closeAddUserModal() {
+            const modal = document.getElementById('addUserModal');
+            const errorDiv = document.getElementById('addUserError');
+            
+            if (modal) modal.classList.add('hidden');
+            if (errorDiv) errorDiv.style.display = 'none';
+            
+            // Clear form
+            const usernameInput = document.getElementById('newUsername');
+            const passwordInput = document.getElementById('newPassword');
+            if (usernameInput) usernameInput.value = '';
+            if (passwordInput) passwordInput.value = '';
+        }
+
+        async function addUser() {
+            const username = document.getElementById('newUsername')?.value.trim();
+            const password = document.getElementById('newPassword')?.value;
+            
+            if (!username || !password) {
+                showAddUserError('Please fill in all fields');
+                return;
+            }
+            
+            try {
+                const authData = JSON.parse(localStorage.getItem('chatAuth') || '{}');
+                const response = await fetch('/api/add-user', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        username,
+                        password,
+                        adminToken: authData.token || ''
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    closeAddUserModal();
+                    loadAllUsers();
+                } else {
+                    showAddUserError(result.message);
+                }
+            } catch (error) {
+                console.error('Add user error:', error);
+                showAddUserError('Error adding user');
+            }
+        }
+
+        function showAddUserError(message) {
+            const errorDiv = document.getElementById('addUserError');
+            if (errorDiv) {
+                errorDiv.textContent = message;
+                errorDiv.style.display = 'block';
+            }
+        }
+
+        async function loadAllUsers() {
+            if (!currentUser || !currentUser.isAdmin) return;
+            
+            try {
+                const authData = JSON.parse(localStorage.getItem('chatAuth') || '{}');
+                const response = await fetch('/api/users', {
+                    headers: {
+                        'Authorization': authData.token || ''
+                    }
+                });
+                
+                if (response.ok) {
+                    const users = await response.json();
+                    displayAllUsers(users);
+                }
+            } catch (error) {
+                console.error('Error loading users:', error);
+            }
+        }
+
+        function displayAllUsers(users) {
+            const container = document.getElementById('allUsersList');
+            if (!container) return;
+            
+            container.innerHTML = '';
+            
+            users.forEach(user => {
+                const userDiv = document.createElement('div');
+                userDiv.className = 'user-list-item';
+                userDiv.innerHTML = `
+                    <span>${escapeHtml(user.username)} ${user.isAdmin ? '(Admin)' : ''}</span>
+                    ${user.username !== 'Aditya' ? `<button class="delete-btn" onclick="deleteUser('${escapeHtml(user.username)}')">Delete</button
