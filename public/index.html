@@ -3,245 +3,174 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Real-time Chat App</title>
+    <title>Enhanced Chat App</title>
+    <script src="/socket.io/socket.io.js"></script>
     <style>
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
         }
 
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
+            overflow-x: hidden;
         }
 
         .container {
             width: 100%;
-            max-width: 1200px;
-            height: 95vh;
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 20px;
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
-            overflow: hidden;
+            height: 100vh;
             display: flex;
             flex-direction: column;
+            padding: 0;
+            margin: 0;
         }
 
-        .login-screen {
+        .auth-container {
             display: flex;
-            flex-direction: column;
             justify-content: center;
             align-items: center;
-            height: 100%;
-            background: linear-gradient(135deg, #ff6b6b, #ee5a24);
-            color: white;
+            height: 100vh;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
         }
 
-        .login-form {
-            background: rgba(255, 255, 255, 0.1);
-            padding: 40px;
+        .auth-box, .add-user-box {
+            background: white;
+            padding: 30px 25px;
             border-radius: 15px;
-            backdrop-filter: blur(10px);
-            text-align: center;
-            min-width: 350px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            width: 100%;
+            max-width: 350px;
         }
 
-        .login-form h2 {
-            margin-bottom: 30px;
-            font-size: 2rem;
+        .chat-container {
+            flex: 1;
+            background: white;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            position: relative;
         }
 
-        .form-group {
-            margin-bottom: 20px;
-            text-align: left;
+        .sidebar {
+            position: fixed;
+            top: 0;
+            left: -100%;
+            width: 280px;
+            height: 100vh;
+            background: white;
+            box-shadow: 2px 0 10px rgba(0,0,0,0.1);
+            padding: 20px;
+            overflow-y: auto;
+            z-index: 1000;
+            transition: left 0.3s ease;
         }
 
-        .form-group label {
+        .sidebar.open {
+            left: 0;
+        }
+
+        .sidebar-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 999;
+            display: none;
+        }
+
+        .sidebar-overlay.active {
             display: block;
-            margin-bottom: 8px;
-            font-weight: 500;
         }
 
-        .form-group input {
-            width: 100%;
-            padding: 12px;
-            border: none;
-            border-radius: 8px;
-            background: rgba(255, 255, 255, 0.9);
-            font-size: 16px;
-        }
-
-        .login-btn {
-            width: 100%;
-            padding: 12px;
-            background: #4CAF50;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 16px;
-            cursor: pointer;
-            transition: background 0.3s;
-        }
-
-        .login-btn:hover {
-            background: #45a049;
-        }
-
-        .header {
-            background: linear-gradient(90deg, #4CAF50, #45a049);
+        .chat-header {
+            background: #667eea;
             color: white;
             padding: 15px 20px;
             display: flex;
             justify-content: space-between;
             align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            min-height: 60px;
         }
 
-        .user-info {
-            display: flex;
-            align-items: center;
-            gap: 15px;
-        }
-
-        .status-indicator {
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            background: #4CAF50;
-            animation: pulse 2s infinite;
-        }
-
-        @keyframes pulse {
-            0% { opacity: 1; }
-            50% { opacity: 0.5; }
-            100% { opacity: 1; }
-        }
-
-        .main-content {
-            display: flex;
-            flex: 1;
-            overflow: hidden;
-        }
-
-        .sidebar {
-            width: 300px;
-            background: #f8f9fa;
-            border-right: 1px solid #ddd;
-            display: flex;
-            flex-direction: column;
-        }
-
-        .online-users {
-            padding: 20px;
-            border-bottom: 1px solid #ddd;
-        }
-
-        .online-users h3 {
-            margin-bottom: 15px;
-            color: #333;
-        }
-
-        .user-list {
-            list-style: none;
-        }
-
-        .user-item {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 8px;
-            border-radius: 8px;
-            margin-bottom: 5px;
-        }
-
-        .user-item.online {
-            background: rgba(76, 175, 80, 0.1);
-        }
-
-        .admin-panel {
-            flex: 1;
-            padding: 20px;
-            overflow-y: auto;
-        }
-
-        .admin-panel h3 {
-            margin-bottom: 15px;
-            color: #333;
-        }
-
-        .friend-request {
-            background: white;
-            border: 1px solid #ddd;
-            border-radius: 8px;
-            padding: 15px;
-            margin-bottom: 10px;
-        }
-
-        .friend-request-actions {
-            display: flex;
-            gap: 10px;
-            margin-top: 10px;
-        }
-
-        .btn {
-            padding: 8px 16px;
+        .menu-btn {
+            background: none;
             border: none;
-            border-radius: 4px;
+            color: white;
+            font-size: 24px;
             cursor: pointer;
-            font-size: 14px;
+            padding: 5px;
+            border-radius: 5px;
         }
 
-        .btn-accept {
-            background: #4CAF50;
-            color: white;
+        .menu-btn:hover {
+            background: rgba(255,255,255,0.1);
         }
 
-        .btn-reject {
-            background: #f44336;
-            color: white;
+        .header-title {
+            font-size: 18px;
+            font-weight: 600;
         }
 
-        .chat-area {
-            flex: 1;
+        .header-user {
             display: flex;
-            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+            font-size: 14px;
         }
 
         .messages-container {
             flex: 1;
-            padding: 20px;
+            padding: 15px;
             overflow-y: auto;
-            background: #fafafa;
+            background: #f8f9fa;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            /* Enable momentum scrolling on iOS */
+            -webkit-overflow-scrolling: touch;
         }
 
         .message {
-            margin-bottom: 15px;
-            padding: 10px 15px;
-            border-radius: 12px;
-            max-width: 70%;
+            padding: 12px 16px;
+            border-radius: 18px;
+            max-width: 85%;
             word-wrap: break-word;
-            animation: fadeIn 0.3s ease-in;
+            animation: messageSlide 0.3s ease-out;
         }
 
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
+        @keyframes messageSlide {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
 
         .message.own {
-            background: #4CAF50;
+            background: #667eea;
             color: white;
-            margin-left: auto;
-            text-align: right;
+            align-self: flex-end;
+            border-bottom-right-radius: 5px;
         }
 
         .message.other {
             background: white;
-            border: 1px solid #ddd;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            align-self: flex-start;
+            border-bottom-left-radius: 5px;
         }
 
         .message.admin {
@@ -252,179 +181,540 @@
             font-size: 12px;
             opacity: 0.7;
             margin-bottom: 5px;
+            font-weight: 500;
         }
 
-        .typing-indicator {
-            padding: 10px 20px;
-            font-style: italic;
-            color: #666;
-            font-size: 14px;
+        .message-image {
+            max-width: 100%;
+            max-height: 250px;
+            border-radius: 10px;
+            margin-top: 8px;
+            cursor: pointer;
         }
 
-        .message-input-area {
-            padding: 20px;
+        .input-container {
+            padding: 15px;
             background: white;
-            border-top: 1px solid #ddd;
-            display: flex;
-            gap: 10px;
+            border-top: 1px solid #eee;
+            position: sticky;
+            bottom: 0;
+            /* Ensure it stays above keyboard on mobile */
+            z-index: 100;
         }
 
-        .message-input {
+        .input-row {
+            display: flex;
+            gap: 8px;
+            align-items: flex-end;
+        }
+
+        input[type="text"], input[type="password"] {
             flex: 1;
-            padding: 12px;
+            padding: 12px 16px;
             border: 1px solid #ddd;
             border-radius: 25px;
             font-size: 16px;
             outline: none;
+            /* Prevent zoom on iOS */
+            font-size: 16px;
+            -webkit-appearance: none;
         }
 
-        .send-btn {
-            padding: 12px 20px;
-            background: #4CAF50;
+        input[type="text"]:focus, input[type="password"]:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+        }
+
+        button {
+            padding: 12px 16px;
+            background: #667eea;
             color: white;
             border: none;
             border-radius: 25px;
             cursor: pointer;
-            font-size: 16px;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.2s ease;
+            min-width: 50px;
+            height: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
-        .send-btn:hover {
-            background: #45a049;
+        button:hover:not(:disabled) {
+            background: #5a6fd8;
+            transform: scale(1.05);
         }
 
-        .friend-request-form {
-            padding: 20px;
-            background: white;
-            border-top: 1px solid #ddd;
+        button:active {
+            transform: scale(0.95);
         }
 
-        .friend-request-form h4 {
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .online-users {
+            margin-bottom: 25px;
+        }
+
+        .online-users h3 {
+            color: #667eea;
             margin-bottom: 15px;
+            font-size: 18px;
         }
 
-        .friend-request-form input,
-        .friend-request-form textarea {
+        .user-item {
+            padding: 12px 15px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            transition: background 0.2s ease;
+        }
+
+        .user-item:active {
+            background: #e9ecef;
+        }
+
+        .user-item.admin {
+            background: #fff3cd;
+            border-left: 3px solid #ffc107;
+        }
+
+        .online-indicator {
+            width: 10px;
+            height: 10px;
+            background: #28a745;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .admin-panel {
+            margin-top: 25px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            border-top: 3px solid #ffc107;
+        }
+
+        .admin-panel h3 {
+            color: #667eea;
+            margin-bottom: 20px;
+            font-size: 18px;
+        }
+
+        .user-list {
+            max-height: 250px;
+            overflow-y: auto;
+        }
+
+        .user-list-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px;
+            margin-bottom: 8px;
+            background: white;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+
+        .delete-btn {
+            padding: 6px 12px;
+            font-size: 12px;
+            background: #dc3545;
+            border-radius: 15px;
+            min-width: auto;
+            height: auto;
+        }
+
+        .delete-btn:hover {
+            background: #c82333;
+        }
+
+        .file-input {
+            display: none;
+        }
+
+        .file-btn {
+            padding: 0;
+            width: 48px;
+            height: 48px;
+            background: #28a745;
+            font-size: 20px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .file-btn:hover:not(:disabled) {
+            background: #218838;
+        }
+
+        .typing-indicator {
+            font-style: italic;
+            color: #666;
+            padding: 8px 16px;
+            font-size: 14px;
+            background: rgba(255,255,255,0.8);
+            border-radius: 15px;
+            align-self: flex-start;
+            margin: 5px 0;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
             width: 100%;
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            margin-bottom: 10px;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
+            padding: 20px;
         }
 
-        .error-message {
-            color: #f44336;
-            margin-top: 10px;
-            text-align: center;
+        .modal-content {
+            background: white;
+            padding: 25px;
+            border-radius: 15px;
+            width: 100%;
+            max-width: 350px;
+            max-height: 90vh;
+            overflow-y: auto;
         }
 
-        .success-message {
-            color: #4CAF50;
-            margin-top: 10px;
-            text-align: center;
+        .modal h2 {
+            margin-bottom: 20px;
+            color: #667eea;
+            font-size: 22px;
         }
 
-        @media (max-width: 768px) {
-            .container {
-                height: 100vh;
-                border-radius: 0;
+        .modal input {
+            width: 100%;
+            margin-bottom: 15px;
+            padding: 15px;
+            font-size: 16px;
+            border-radius: 10px;
+            border: 2px solid #ddd;
+        }
+
+        .modal input:focus {
+            border-color: #667eea;
+            outline: none;
+        }
+
+        .modal-buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            margin-top: 20px;
+        }
+
+        .cancel-btn {
+            background: #6c757d;
+        }
+
+        .cancel-btn:hover {
+            background: #5a6268;
+        }
+
+        /* Mobile-specific styles */
+        .close-sidebar {
+            display: block;
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            font-size: 18px;
+            cursor: pointer;
+        }
+
+        /* Ensure proper touch targets */
+        button, .user-item, .message-image {
+            min-height: 44px;
+            min-width: 44px;
+        }
+
+        /* Loading spinner */
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Safe area handling for notched phones */
+        .chat-header {
+            padding-top: max(15px, env(safe-area-inset-top));
+        }
+
+        .input-container {
+            padding-bottom: max(15px, env(safe-area-inset-bottom));
+        }
+
+        /* Prevent zoom on input focus */
+        @media screen and (max-width: 768px) {
+            input[type="text"], 
+            input[type="password"], 
+            textarea, 
+            select {
+                font-size: 16px !important;
+                transform-origin: left top;
+                -webkit-appearance: none;
             }
-            
-            .main-content {
-                flex-direction: column;
-            }
-            
-            .sidebar {
-                width: 100%;
-                height: auto;
-                max-height: 40%;
+        }
+
+        /* Dark theme media query for better visibility */
+        @media (prefers-color-scheme: dark) {
+            .message.other {
+                background: #2c3e50;
+                color: white;
             }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <!-- Login Screen -->
-        <div id="loginScreen" class="login-screen">
-            <div class="login-form">
-                <h2>🚀 Real-time Chat</h2>
-                <div class="form-group">
-                    <label>Username:</label>
-                    <input type="text" id="username" placeholder="Enter username">
-                </div>
-                <div class="form-group">
-                    <label>Password:</label>
-                    <input type="password" id="password" placeholder="Enter password">
-                </div>
-                <button class="login-btn" onclick="login()">Login</button>
-                <div id="loginError" class="error-message"></div>
+    <!-- Authentication Screen -->
+    <div id="authScreen" class="auth-container">
+        <div class="auth-box">
+            <h2>Login to Chat</h2>
+            <form id="loginForm">
+                <input type="text" id="username" placeholder="Username" required>
+                <input type="password" id="password" placeholder="Password" required style="margin: 10px 0;">
+                <button type="submit">Login</button>
+            </form>
+            <div id="authError" style="color: red; margin-top: 10px; display: none;"></div>
+        </div>
+    </div>
+
+    <!-- Add User Modal -->
+    <div id="addUserModal" class="modal hidden">
+        <div class="modal-content">
+            <h2>Add New User</h2>
+            <input type="text" id="newUsername" placeholder="Username" required>
+            <input type="password" id="newPassword" placeholder="Password" required>
+            <div class="modal-buttons">
+                <button class="cancel-btn" onclick="closeAddUserModal()">Cancel</button>
+                <button onclick="addUser()">Add User</button>
+            </div>
+            <div id="addUserError" style="color: red; margin-top: 10px; display: none;"></div>
+        </div>
+    </div>
+
+    <!-- Main Chat Interface -->
+    <div id="chatScreen" class="container hidden">
+        <!-- Sidebar Overlay -->
+        <div id="sidebarOverlay" class="sidebar-overlay" onclick="closeSidebar()"></div>
+        
+        <!-- Sidebar -->
+        <div id="sidebar" class="sidebar">
+            <button class="close-sidebar" onclick="closeSidebar()">×</button>
+            
+            <div class="online-users">
+                <h3>Online Users</h3>
+                <div id="onlineUsersList"></div>
+            </div>
+            
+            <div id="adminPanel" class="admin-panel hidden">
+                <h3>Admin Panel</h3>
+                <button onclick="showAddUserModal()" style="width: 100%; margin-bottom: 15px;">Add New User</button>
+                <h4>All Users:</h4>
+                <div id="allUsersList" class="user-list"></div>
             </div>
         </div>
 
-        <!-- Main Chat Interface -->
-        <div id="chatInterface" style="display: none;">
-            <header class="header">
-                <div class="user-info">
-                    <div class="status-indicator"></div>
+        <div class="chat-container">
+            <div class="chat-header">
+                <button class="menu-btn" onclick="toggleSidebar()">☰</button>
+                <div class="header-title">Enhanced Chat</div>
+                <div class="header-user">
                     <span id="currentUser"></span>
-                    <span id="connectionStatus">Connected</span>
+                    <button onclick="logout()" style="padding: 5px 10px; font-size: 12px; height: auto; min-width: auto; border-radius: 15px;">Logout</button>
                 </div>
-                <button onclick="logout()" class="btn">Logout</button>
-            </header>
-
-            <div class="main-content">
-                <aside class="sidebar">
-                    <div class="online-users">
-                        <h3>Online Users</h3>
-                        <ul id="onlineUsersList" class="user-list"></ul>
-                    </div>
-
-                    <div class="admin-panel" id="adminPanel" style="display: none;">
-                        <h3>Friend Requests</h3>
-                        <div id="friendRequestsList"></div>
-                    </div>
-
-                    <div class="friend-request-form" id="friendRequestForm">
-                        <h4>Send Friend Request</h4>
-                        <input type="text" id="friendRequestTo" placeholder="To (username)">
-                        <textarea id="friendRequestMessage" placeholder="Message" rows="3"></textarea>
-                        <button class="btn btn-accept" onclick="sendFriendRequest()">Send Request</button>
-                    </div>
-                </aside>
-
-                <main class="chat-area">
-                    <div id="messagesContainer" class="messages-container"></div>
-                    <div id="typingIndicator" class="typing-indicator" style="display: none;"></div>
-                    <div class="message-input-area">
-                        <input type="text" id="messageInput" class="message-input" placeholder="Type your message..." onkeypress="handleKeyPress(event)">
-                        <button onclick="sendMessage()" class="send-btn">Send</button>
-                    </div>
-                </main>
+            </div>
+            
+            <div class="messages-container" id="messagesContainer">
+                <div id="typingIndicator" class="typing-indicator hidden"></div>
+            </div>
+            
+            <div class="input-container">
+                <div class="input-row">
+                    <input type="text" id="messageInput" placeholder="Type a message..." maxlength="500">
+                    <input type="file" id="imageInput" class="file-input" accept="image/*">
+                    <button class="file-btn" onclick="document.getElementById('imageInput').click()" title="Send Photo">📷</button>
+                    <button id="sendButton" onclick="sendMessage()">Send</button>
+                </div>
             </div>
         </div>
     </div>
 
-    <!-- Socket.IO script must be loaded BEFORE our custom script -->
-    <script src="/socket.io/socket.io.js"></script>
     <script>
-        let socket = null;
+        let socket;
         let currentUser = null;
-        let typingTimer = null;
+        let typingTimer;
+        let isTyping = false;
 
-        // Initialize socket connection
-        function initSocket() {
+        // Initialize app
+        document.addEventListener('DOMContentLoaded', function() {
+            // Prevent zoom on double tap
+            let lastTouchEnd = 0;
+            document.addEventListener('touchend', function (event) {
+                const now = (new Date()).getTime();
+                if (now - lastTouchEnd <= 300) {
+                    event.preventDefault();
+                }
+                lastTouchEnd = now;
+            }, false);
+
+            // Check for saved auth
+            const savedAuth = localStorage.getItem('chatAuth');
+            if (savedAuth) {
+                const authData = JSON.parse(savedAuth);
+                currentUser = authData.user;
+                if (currentUser) {
+                    showChatScreen();
+                    initializeSocket();
+                }
+            }
+
+            // Event listeners
+            document.getElementById('loginForm').addEventListener('submit', handleLogin);
+            
+            const messageInput = document.getElementById('messageInput');
+            messageInput.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    sendMessage();
+                }
+                handleTyping();
+            });
+            
+            // Auto-resize input on mobile
+            messageInput.addEventListener('input', function() {
+                this.style.height = 'auto';
+                this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+            });
+            
+            document.getElementById('imageInput').addEventListener('change', handleImageSelect);
+            
+            // Close sidebar when clicking outside
+            document.addEventListener('click', function(e) {
+                const sidebar = document.getElementById('sidebar');
+                const menuBtn = document.querySelector('.menu-btn');
+                
+                if (!sidebar.contains(e.target) && !menuBtn.contains(e.target)) {
+                    closeSidebar();
+                }
+            });
+
+            // Handle screen orientation change
+            window.addEventListener('orientationchange', function() {
+                setTimeout(scrollToBottom, 500);
+            });
+        });
+
+        // Sidebar functions for mobile
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('sidebarOverlay');
+            
+            sidebar.classList.toggle('open');
+            overlay.classList.toggle('active');
+        }
+
+        function closeSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('sidebarOverlay');
+            
+            sidebar.classList.remove('open');
+            overlay.classList.remove('active');
+        }
+
+        function scrollToBottom() {
+            const container = document.getElementById('messagesContainer');
+            container.scrollTop = container.scrollHeight;
+        }
+
+        async function handleLogin(e) {
+            e.preventDefault();
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+
+            try {
+                const response = await fetch('/api/auth', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ username, password })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    currentUser = result.user;
+                    localStorage.setItem('chatAuth', JSON.stringify(result));
+                    showChatScreen();
+                    initializeSocket();
+                } else {
+                    showAuthError(result.message);
+                }
+            } catch (error) {
+                showAuthError('Connection error. Please try again.');
+            }
+        }
+
+        function showAuthError(message) {
+            const errorDiv = document.getElementById('authError');
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+        }
+
+        function showChatScreen() {
+            document.getElementById('authScreen').classList.add('hidden');
+            document.getElementById('chatScreen').classList.remove('hidden');
+            document.getElementById('currentUser').textContent = 
+                `${currentUser.username} ${currentUser.isAdmin ? '(Admin)' : ''}`;
+            
+            if (currentUser.isAdmin) {
+                document.getElementById('adminPanel').classList.remove('hidden');
+                loadAllUsers();
+            }
+        }
+
+        function initializeSocket() {
             socket = io();
 
             socket.on('connect', () => {
                 console.log('Connected to server');
-                updateConnectionStatus('Connected');
-                if (currentUser) {
-                    socket.emit('authenticate', currentUser);
-                }
-            });
-
-            socket.on('disconnect', () => {
-                console.log('Disconnected from server');
-                updateConnectionStatus('Disconnected');
+                socket.emit('authenticate', currentUser);
             });
 
             socket.on('messageReceived', (message) => {
@@ -432,238 +722,16 @@
             });
 
             socket.on('onlineUsers', (users) => {
-                updateOnlineUsers(users);
-            });
-
-            socket.on('newFriendRequest', (request) => {
-                displayFriendRequest(request);
-            });
-
-            socket.on('friendRequestUpdated', (request) => {
-                updateFriendRequest(request);
+                displayOnlineUsers(users);
             });
 
             socket.on('userTyping', (data) => {
-                showTypingIndicator(data);
+                handleUserTyping(data);
             });
 
-            socket.on('connect_error', (error) => {
-                console.error('Connection error:', error);
-                updateConnectionStatus('Connection Error');
-            });
+            loadMessages();
         }
 
-        // Login function
-        async function login() {
-            const username = document.getElementById('username').value.trim();
-            const password = document.getElementById('password').value.trim();
-
-            if (!username || !password) {
-                showError('Please enter both username and password');
-                return;
-            }
-
-            try {
-                const response = await fetch('/api/auth', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ username, password })
-                });
-
-                const data = await response.json();
-
-                if (data.success) {
-                    currentUser = data.user;
-                    showChatInterface();
-                    initSocket();
-                    loadMessages();
-                    if (currentUser.isAdmin) {
-                        loadFriendRequests();
-                    }
-                } else {
-                    showError(data.message || 'Login failed');
-                }
-            } catch (error) {
-                console.error('Login error:', error);
-                showError('Connection error. Please try again.');
-            }
-        }
-
-        // Show chat interface
-        function showChatInterface() {
-            document.getElementById('loginScreen').style.display = 'none';
-            document.getElementById('chatInterface').style.display = 'flex';
-            document.getElementById('currentUser').textContent = currentUser.username + (currentUser.isAdmin ? ' (Admin)' : '');
-            
-            if (currentUser.isAdmin) {
-                document.getElementById('adminPanel').style.display = 'block';
-            }
-
-            // Focus on message input
-            setTimeout(() => {
-                document.getElementById('messageInput').focus();
-            }, 100);
-        }
-
-        // Logout function
-        function logout() {
-            if (socket) {
-                socket.disconnect();
-            }
-            currentUser = null;
-            document.getElementById('loginScreen').style.display = 'flex';
-            document.getElementById('chatInterface').style.display = 'none';
-            document.getElementById('username').value = '';
-            document.getElementById('password').value = '';
-            document.getElementById('messagesContainer').innerHTML = '';
-            document.getElementById('friendRequestsList').innerHTML = '';
-            document.getElementById('onlineUsersList').innerHTML = '';
-        }
-
-        // Send message
-        function sendMessage() {
-            const messageInput = document.getElementById('messageInput');
-            const text = messageInput.value.trim();
-
-            if (text && socket) {
-                socket.emit('newMessage', { text });
-                messageInput.value = '';
-                stopTyping();
-            }
-        }
-
-        // Handle key press in message input
-        function handleKeyPress(event) {
-            if (event.key === 'Enter') {
-                sendMessage();
-            } else {
-                handleTyping();
-            }
-        }
-
-        // Handle typing indicator
-        function handleTyping() {
-            if (socket) {
-                socket.emit('typing', { isTyping: true });
-                
-                clearTimeout(typingTimer);
-                typingTimer = setTimeout(() => {
-                    stopTyping();
-                }, 1000);
-            }
-        }
-
-        function stopTyping() {
-            if (socket) {
-                socket.emit('typing', { isTyping: false });
-            }
-        }
-
-        // Display message
-        function displayMessage(message) {
-            const container = document.getElementById('messagesContainer');
-            const messageDiv = document.createElement('div');
-            messageDiv.className = `message ${message.username === currentUser.username ? 'own' : 'other'} ${message.isAdmin ? 'admin' : ''}`;
-
-            const time = new Date(message.timestamp).toLocaleTimeString();
-            messageDiv.innerHTML = `
-                <div class="message-header">${escapeHtml(message.username)} • ${time}</div>
-                <div>${escapeHtml(message.text)}</div>
-            `;
-
-            container.appendChild(messageDiv);
-            container.scrollTop = container.scrollHeight;
-        }
-
-        // Update online users
-        function updateOnlineUsers(users) {
-            const list = document.getElementById('onlineUsersList');
-            list.innerHTML = '';
-
-            users.forEach(username => {
-                const li = document.createElement('li');
-                li.className = 'user-item online';
-                li.innerHTML = `
-                    <div class="status-indicator"></div>
-                    <span>${escapeHtml(username)}</span>
-                `;
-                list.appendChild(li);
-            });
-        }
-
-        // Send friend request
-        function sendFriendRequest() {
-            const to = document.getElementById('friendRequestTo').value.trim();
-            const message = document.getElementById('friendRequestMessage').value.trim();
-
-            if (!to) {
-                alert('Please enter a username');
-                return;
-            }
-
-            if (socket) {
-                socket.emit('sendFriendRequest', { to, message: message || 'Hi! Let\'s be friends!' });
-                document.getElementById('friendRequestTo').value = '';
-                document.getElementById('friendRequestMessage').value = '';
-                alert('Friend request sent!');
-            }
-        }
-
-        // Display friend request (admin only)
-        function displayFriendRequest(request) {
-            if (!currentUser || !currentUser.isAdmin) return;
-
-            const container = document.getElementById('friendRequestsList');
-            const requestDiv = document.createElement('div');
-            requestDiv.className = 'friend-request';
-            requestDiv.id = `request-${request.id}`;
-
-            requestDiv.innerHTML = `
-                <strong>From: ${escapeHtml(request.from)}</strong><br>
-                <strong>To: ${escapeHtml(request.to)}</strong><br>
-                <p>${escapeHtml(request.message)}</p>
-                <small>${new Date(request.timestamp).toLocaleString()}</small>
-                <div class="friend-request-actions">
-                    <button class="btn btn-accept" onclick="respondToFriendRequest(${request.id}, 'accepted')">Accept</button>
-                    <button class="btn btn-reject" onclick="respondToFriendRequest(${request.id}, 'rejected')">Reject</button>
-                </div>
-            `;
-
-            container.appendChild(requestDiv);
-        }
-
-        // Respond to friend request
-        function respondToFriendRequest(requestId, action) {
-            if (socket) {
-                socket.emit('respondFriendRequest', { requestId, action });
-            }
-        }
-
-        // Update friend request status
-        function updateFriendRequest(request) {
-            const requestDiv = document.getElementById(`request-${request.id}`);
-            if (requestDiv) {
-                const actionsDiv = requestDiv.querySelector('.friend-request-actions');
-                if (actionsDiv) {
-                    actionsDiv.innerHTML = `<span style="color: ${request.status === 'accepted' ? '#4CAF50' : '#f44336'}">${request.status.toUpperCase()} by ${escapeHtml(request.respondedBy)}</span>`;
-                }
-            }
-        }
-
-        // Show typing indicator
-        function showTypingIndicator(data) {
-            const indicator = document.getElementById('typingIndicator');
-            if (data.isTyping && data.username !== currentUser.username) {
-                indicator.textContent = `${data.username} is typing...`;
-                indicator.style.display = 'block';
-            } else {
-                indicator.style.display = 'none';
-            }
-        }
-
-        // Load messages
         async function loadMessages() {
             try {
                 const response = await fetch('/api/messages');
@@ -674,66 +742,130 @@
             }
         }
 
-        // Load friend requests (admin only)
-        async function loadFriendRequests() {
-            if (!currentUser || !currentUser.isAdmin) return;
+        function displayMessage(message) {
+            const messagesContainer = document.getElementById('messagesContainer');
+            const messageDiv = document.createElement('div');
+            
+            const isOwn = message.username === currentUser.username;
+            messageDiv.className = `message ${isOwn ? 'own' : 'other'} ${message.isAdmin ? 'admin' : ''}`;
+
+            let content = '';
+            if (!isOwn) {
+                content += `<div class="message-header">${message.username} ${message.isAdmin ? '(Admin)' : ''} - ${new Date(message.timestamp).toLocaleTimeString()}</div>`;
+            } else {
+                content += `<div class="message-header">${new Date(message.timestamp).toLocaleTimeString()}</div>`;
+            }
+
+            if (message.type === 'image') {
+                content += `<img src="${message.imageUrl}" alt="Image" class="message-image">`;
+                if (message.caption) {
+                    content += `<div>${message.caption}</div>`;
+                }
+            } else {
+                content += `<div>${escapeHtml(message.text)}</div>`;
+            }
+
+            messageDiv.innerHTML = content;
+            messagesContainer.appendChild(messageDiv);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        function sendMessage() {
+            const input = document.getElementById('messageInput');
+            const message = input.value.trim();
+            
+            if (message && socket) {
+                socket.emit('newMessage', { text: message });
+                input.value = '';
+                clearTyping();
+            }
+        }
+
+        async function handleImageSelect(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            if (file.size > 10 * 1024 * 1024) {
+                alert('File size must be less than 10MB');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('image', file);
 
             try {
-                const response = await fetch('/api/friend-requests');
-                const requests = await response.json();
-                requests.filter(req => req.status === 'pending').forEach(request => displayFriendRequest(request));
+                document.getElementById('sendButton').disabled = true;
+                document.getElementById('sendButton').textContent = 'Uploading...';
+
+                const response = await fetch('/api/upload-image', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    const caption = prompt('Add a caption (optional):');
+                    socket.emit('newImageMessage', {
+                        imageUrl: result.imageUrl,
+                        caption: caption || ''
+                    });
+                } else {
+                    alert('Error uploading image: ' + result.message);
+                }
             } catch (error) {
-                console.error('Error loading friend requests:', error);
+                alert('Error uploading image');
+            } finally {
+                document.getElementById('sendButton').disabled = false;
+                document.getElementById('sendButton').textContent = 'Send';
+                e.target.value = ''; // Reset file input
             }
         }
 
-        // Update connection status
-        function updateConnectionStatus(status) {
-            const statusElement = document.getElementById('connectionStatus');
-            if (statusElement) {
-                statusElement.textContent = status;
+        function handleTyping() {
+            if (!isTyping) {
+                isTyping = true;
+                socket.emit('typing', { isTyping: true });
+            }
+
+            clearTimeout(typingTimer);
+            typingTimer = setTimeout(() => {
+                clearTyping();
+            }, 1000);
+        }
+
+        function clearTyping() {
+            if (isTyping) {
+                isTyping = false;
+                socket.emit('typing', { isTyping: false });
             }
         }
 
-        // Show error message
-        function showError(message) {
-            const errorElement = document.getElementById('loginError');
-            if (errorElement) {
-                errorElement.textContent = message;
-                setTimeout(() => {
-                    errorElement.textContent = '';
-                }, 5000);
+        function handleUserTyping(data) {
+            const indicator = document.getElementById('typingIndicator');
+            if (data.isTyping) {
+                indicator.textContent = `${data.username} is typing...`;
+                indicator.classList.remove('hidden');
+            } else {
+                indicator.classList.add('hidden');
             }
         }
 
-        // Escape HTML to prevent XSS
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
-
-        // Initialize app
-        document.addEventListener('DOMContentLoaded', () => {
-            // Focus on username input
-            const usernameInput = document.getElementById('username');
-            if (usernameInput) {
-                usernameInput.focus();
-            }
-
-            // Add Enter key listener for login
-            document.getElementById('username').addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') {
-                    document.getElementById('password').focus();
-                }
+        function displayOnlineUsers(users) {
+            const container = document.getElementById('onlineUsersList');
+            container.innerHTML = '';
+            
+            users.forEach(username => {
+                const userDiv = document.createElement('div');
+                const isAdmin = (username === 'Aditya' || currentUser.isAdmin && username === currentUser.username);
+                userDiv.className = `user-item ${isAdmin ? 'admin' : ''}`;
+                userDiv.innerHTML = `
+                    <span class="online-indicator"></span>
+                    ${username} ${isAdmin ? '(Admin)' : ''}
+                `;
+                container.appendChild(userDiv);
             });
+        }
 
-            document.getElementById('password').addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') {
-                    login();
-                }
-            });
-        });
-    </script>
-</body>
-</html>
+        // Admin functions
+        function showAddUser
