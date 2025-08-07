@@ -1010,4 +1010,65 @@
                 userDiv.className = 'user-list-item';
                 userDiv.innerHTML = `
                     <span>${escapeHtml(user.username)} ${user.isAdmin ? '(Admin)' : ''}</span>
-                    ${user.username !== 'Aditya' ? `<button class="delete-btn" onclick="deleteUser('${escapeHtml(user.username)}')">Delete</button
+                    ${user.username !== 'Aditya' ? `<button class="delete-btn" onclick="deleteUser('${escapeHtml(user.username)}')">Delete</button>` : ''}
+                `;
+                container.appendChild(userDiv);
+            });
+        }
+
+        async function deleteUser(username) {
+            if (!confirm(`Are you sure you want to delete user "${username}"?`)) {
+                return;
+            }
+            
+            try {
+                const authData = JSON.parse(localStorage.getItem('chatAuth') || '{}');
+                const response = await fetch(`/api/users/${encodeURIComponent(username)}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': authData.token || ''
+                    }
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    loadAllUsers();
+                } else {
+                    alert('Error deleting user: ' + result.message);
+                }
+            } catch (error) {
+                console.error('Delete user error:', error);
+                alert('Error deleting user');
+            }
+        }
+
+        function logout() {
+            localStorage.removeItem('chatAuth');
+            if (socket) {
+                socket.disconnect();
+            }
+            currentUser = null;
+            
+            const authScreen = document.getElementById('authScreen');
+            const chatScreen = document.getElementById('chatScreen');
+            
+            if (authScreen) authScreen.classList.remove('hidden');
+            if (chatScreen) chatScreen.classList.add('hidden');
+            
+            // Clear form
+            const usernameInput = document.getElementById('username');
+            const passwordInput = document.getElementById('password');
+            if (usernameInput) usernameInput.value = '';
+            if (passwordInput) passwordInput.value = '';
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>
