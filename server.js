@@ -13,35 +13,21 @@ const io = socketIo(server, {
     origin: "*",
     methods: ["GET", "POST"]
   },
-  maxHttpBufferSize: 1e8 // 100MB for file uploads
+  maxHttpBufferSize: 1e8
 });
 
-// Middleware
+// Basic middleware
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static('public'));
 app.use('/uploads', express.static('uploads'));
 
-// Railway-specific fixes
-app.use((req, res, next) => {
-  // Add CORS headers for Railway
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
-  
-  if (req.method === 'OPTIONS') {
-    res.sendStatus(200);
-  } else {
-    next();
-  }
-});
-
-// Create uploads directory if it doesn't exist
+// Create uploads directory
 if (!fs.existsSync('uploads')) {
   fs.mkdirSync('uploads');
 }
 
-// Configure multer for file uploads
+// Multer config
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     cb(null, 'uploads/');
@@ -54,9 +40,7 @@ const storage = multer.diskStorage({
 
 const upload = multer({ 
   storage: storage,
-  limits: {
-    fileSize: 10 * 1024 * 1024 // 10MB limit
-  },
+  limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     const allowedTypes = /jpeg|jpg|png|gif|bmp|webp/;
     const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
@@ -70,13 +54,13 @@ const upload = multer({
   }
 });
 
-// In-memory storage (replace with database for production)
+// Data storage
 let users = new Map();
 let messages = [];
 let friendRequests = [];
 let onlineUsers = new Set();
 
-// Initialize with admin user
+// Initialize admin user
 users.set('Aditya', { 
   username: 'Aditya', 
   password: '123', 
@@ -89,43 +73,40 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Test endpoint to verify API is working
+// Test endpoint
 app.get('/test', (req, res) => {
-  res.json({ 
-    message: 'API is working!', 
-    timestamp: new Date(),
-    users: users.size,
-    messages: messages.length 
-  });
+  res.json({ message: 'API working!', users: users.size });
 });
 
-// Authentication endpoint
+// Authentication
 app.post('/api/auth', (req, res) => {
-  console.log('Login attempt:', req.body);
-  const { username, password } = req.body;
-  
-  const user = users.get(username);
-  if (user && user.password === password) {
-    console.log('Login successful for:', username);
-    res.json({ 
-      success: true, 
-      user: { 
-        username: user.username, 
-        isAdmin: user.isAdmin || false 
-      },
-      token: `${username}_${Date.now()}`
-    });
-  } else {
-    console.log('Login failed for:', username);
-    res.status(401).json({ success: false, message: 'Invalid credentials' });
+  try {
+    console.log('Login attempt:', req.body);
+    const { username, password } = req.body;
+    
+    const user = users.get(username);
+    if (user && user.password === password) {
+      res.json({ 
+        success: true, 
+        user: { 
+          username: user.username, 
+          isAdmin: user.isAdmin || false 
+        },
+        token: `${username}_${Date.now()}`
+      });
+    } else {
+      res.status(401).json({ success: false, message: 'Invalid credentials' });
+    }
+  } catch (error) {
+    console.error('Auth error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
   }
 });
 
-// Add new user (admin only)
+// Add user
 app.post('/api/add-user', (req, res) => {
   const { username, password, adminToken } = req.body;
   
-  // Verify admin token (simple check, enhance for production)
   const adminUser = Array.from(users.values()).find(u => u.isAdmin && adminToken.includes(u.username));
   if (!adminUser) {
     return res.status(403).json({ success: false, message: 'Admin access required' });
@@ -152,7 +133,7 @@ app.post('/api/add-user', (req, res) => {
   });
 });
 
-// Get all users (admin only)
+// Get users
 app.get('/api/users', (req, res) => {
   const adminToken = req.headers.authorization;
   if (!adminToken) {
@@ -174,7 +155,7 @@ app.get('/api/users', (req, res) => {
   res.json(userList);
 });
 
-// Delete user (admin only)
+// Delete user
 app.delete('/api/users/:username', (req, res) => {
   const { username } = req.params;
   const adminToken = req.headers.authorization;
@@ -193,17 +174,15 @@ app.delete('/api/users/:username', (req, res) => {
   }
   
   if (users.delete(username)) {
-    // Remove user from online users if connected
     onlineUsers.delete(username);
     io.emit('onlineUsers', Array.from(onlineUsers));
-    
     res.json({ success: true, message: 'User deleted successfully' });
   } else {
     res.status(404).json({ success: false, message: 'User not found' });
   }
 });
 
-// Image upload endpoint
+// Image upload
 app.post('/api/upload-image', upload.single('image'), (req, res) => {
   if (!req.file) {
     return res.status(400).json({ success: false, message: 'No file uploaded' });
@@ -219,32 +198,18 @@ app.post('/api/upload-image', upload.single('image'), (req, res) => {
 
 // Get messages
 app.get('/api/messages', (req, res) => {
-  console.log('Messages requested, returning:', messages.length, 'messages');
   res.json(messages);
 });
 
-// Get friend requests (admin only)
+// Friend requests
 app.get('/api/friend-requests', (req, res) => {
   res.json(friendRequests);
 });
 
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'healthy', 
-    timestamp: new Date().toISOString(),
-    uptime: process.uptime(),
-    users: users.size,
-    onlineUsers: onlineUsers.size,
-    messages: messages.length
-  });
-});
-
-// Socket.IO connection handling
+// Socket.IO
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
   
-  // Handle user authentication
   socket.on('authenticate', (userData) => {
     if (userData && userData.username) {
       const user = users.get(userData.username);
@@ -252,16 +217,12 @@ io.on('connection', (socket) => {
         socket.username = userData.username;
         socket.isAdmin = user.isAdmin || false;
         onlineUsers.add(userData.username);
-        
-        // Broadcast updated online users
         io.emit('onlineUsers', Array.from(onlineUsers));
-        
         console.log(`${userData.username} authenticated`);
       }
     }
   });
   
-  // Handle new messages (text)
   socket.on('newMessage', (messageData) => {
     if (!socket.username) return;
     
@@ -275,17 +236,13 @@ io.on('connection', (socket) => {
     };
     
     messages.push(message);
-    
-    // Keep only last 100 messages
     if (messages.length > 100) {
       messages = messages.slice(-100);
     }
     
-    // Broadcast to all clients
     io.emit('messageReceived', message);
   });
   
-  // Handle image messages
   socket.on('newImageMessage', (messageData) => {
     if (!socket.username) return;
     
@@ -300,17 +257,13 @@ io.on('connection', (socket) => {
     };
     
     messages.push(message);
-    
-    // Keep only last 100 messages
     if (messages.length > 100) {
       messages = messages.slice(-100);
     }
     
-    // Broadcast to all clients
     io.emit('messageReceived', message);
   });
   
-  // Handle friend requests
   socket.on('sendFriendRequest', (requestData) => {
     if (!socket.username) return;
     
@@ -324,27 +277,21 @@ io.on('connection', (socket) => {
     };
     
     friendRequests.push(friendRequest);
-    
-    // Notify admins
     io.emit('newFriendRequest', friendRequest);
   });
   
-  // Handle friend request responses (admin only)
   socket.on('respondFriendRequest', (responseData) => {
     if (!socket.isAdmin) return;
     
     const request = friendRequests.find(req => req.id === responseData.requestId);
     if (request) {
-      request.status = responseData.action; // 'accepted' or 'rejected'
+      request.status = responseData.action;
       request.respondedBy = socket.username;
       request.responseTime = new Date().toISOString();
-      
-      // Broadcast updated friend requests
       io.emit('friendRequestUpdated', request);
     }
   });
   
-  // Handle typing indicators
   socket.on('typing', (data) => {
     if (!socket.username) return;
     
@@ -354,7 +301,6 @@ io.on('connection', (socket) => {
     });
   });
   
-  // Handle disconnection
   socket.on('disconnect', () => {
     if (socket.username) {
       onlineUsers.delete(socket.username);
@@ -364,7 +310,7 @@ io.on('connection', (socket) => {
   });
 });
 
-// Error handling middleware
+// Error handling
 app.use((error, req, res, next) => {
   console.error('Error:', error);
   if (error instanceof multer.MulterError) {
@@ -375,23 +321,9 @@ app.use((error, req, res, next) => {
   res.status(500).json({ success: false, message: error.message });
 });
 
-// Catch-all route for debugging
-app.get('*', (req, res) => {
-  console.log('Unmatched route:', req.path);
-  if (req.path.startsWith('/api/')) {
-    res.status(404).json({ error: 'API endpoint not found', path: req.path });
-  } else {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-  }
-});
-
 // Start server
 const PORT = process.env.PORT || 8080;
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📱 Access from any device: http://YOUR_IP_ADDRESS:${PORT}`);
-  console.log(`💻 Local access: http://localhost:${PORT}`);
   console.log(`👤 Admin login: Aditya / 123`);
-  console.log(`🔧 Test API: /test`);
-  console.log(`📊 Health check: /health`);
 });
