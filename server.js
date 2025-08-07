@@ -22,6 +22,20 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.static('public'));
 app.use('/uploads', express.static('uploads'));
 
+// Railway-specific fixes
+app.use((req, res, next) => {
+  // Add CORS headers for Railway
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(200);
+  } else {
+    next();
+  }
+});
+
 // Create uploads directory if it doesn't exist
 if (!fs.existsSync('uploads')) {
   fs.mkdirSync('uploads');
@@ -75,12 +89,24 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+// Test endpoint to verify API is working
+app.get('/test', (req, res) => {
+  res.json({ 
+    message: 'API is working!', 
+    timestamp: new Date(),
+    users: users.size,
+    messages: messages.length 
+  });
+});
+
 // Authentication endpoint
 app.post('/api/auth', (req, res) => {
+  console.log('Login attempt:', req.body);
   const { username, password } = req.body;
   
   const user = users.get(username);
   if (user && user.password === password) {
+    console.log('Login successful for:', username);
     res.json({ 
       success: true, 
       user: { 
@@ -90,6 +116,7 @@ app.post('/api/auth', (req, res) => {
       token: `${username}_${Date.now()}`
     });
   } else {
+    console.log('Login failed for:', username);
     res.status(401).json({ success: false, message: 'Invalid credentials' });
   }
 });
@@ -192,12 +219,25 @@ app.post('/api/upload-image', upload.single('image'), (req, res) => {
 
 // Get messages
 app.get('/api/messages', (req, res) => {
+  console.log('Messages requested, returning:', messages.length, 'messages');
   res.json(messages);
 });
 
 // Get friend requests (admin only)
 app.get('/api/friend-requests', (req, res) => {
   res.json(friendRequests);
+});
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({ 
+    status: 'healthy', 
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    users: users.size,
+    onlineUsers: onlineUsers.size,
+    messages: messages.length
+  });
 });
 
 // Socket.IO connection handling
@@ -326,6 +366,7 @@ io.on('connection', (socket) => {
 
 // Error handling middleware
 app.use((error, req, res, next) => {
+  console.error('Error:', error);
   if (error instanceof multer.MulterError) {
     if (error.code === 'LIMIT_FILE_SIZE') {
       return res.status(400).json({ success: false, message: 'File too large' });
@@ -334,11 +375,23 @@ app.use((error, req, res, next) => {
   res.status(500).json({ success: false, message: error.message });
 });
 
+// Catch-all route for debugging
+app.get('*', (req, res) => {
+  console.log('Unmatched route:', req.path);
+  if (req.path.startsWith('/api/')) {
+    res.status(404).json({ error: 'API endpoint not found', path: req.path });
+  } else {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  }
+});
+
 // Start server
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080;
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📱 Access from any device: http://YOUR_IP_ADDRESS:${PORT}`);
   console.log(`💻 Local access: http://localhost:${PORT}`);
   console.log(`👤 Admin login: Aditya / 123`);
+  console.log(`🔧 Test API: /test`);
+  console.log(`📊 Health check: /health`);
 });
