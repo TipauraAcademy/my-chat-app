@@ -1,0 +1,19 @@
+[phases.setup]
+nixPkgs = ['nodejs-18_x', 'npm']
+
+[phases.install]
+cmds = [
+  'npm ci --cache /tmp/empty-cache',
+  'mkdir -p uploads data logs',
+  'touch uploads/.gitkeep'
+]
+
+[phases.build]
+cmds = ['echo "No build step required"']
+
+[start]
+cmd = 'npm start'
+
+[variables]
+NODE_ENV = 'production'
+PORT = '3000'
