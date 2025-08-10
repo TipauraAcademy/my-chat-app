@@ -1,11 +1,17 @@
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
-const cors = require('cors');
-const multer = require('multer');
 const path = require('path');
-const fs = require('fs');
-const crypto = require('crypto');
+const fs = require('fs-extra');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const multer = require('multer');
+const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const compression = require('compression');
+const { v4: uuidv4 } = require('uuid');
+require('dotenv').config();
 
 const app = express();
 const server = http.createServer(app);
@@ -16,27 +22,173 @@ const io = socketIo(server, {
     }
 });
 
+// Configuration
 const PORT = process.env.PORT || 3000;
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+const UPLOAD_DIR = path.join(__dirname, 'uploads');
+const DATA_DIR = path.join(__dirname, 'data');
+
+// Ensure directories exist
+fs.ensureDirSync(UPLOAD_DIR);
+fs.ensureDirSync(DATA_DIR);
+
+// In-memory storage (replace with database in production)
+let users = new Map();
+let groups = new Map();
+let messages = new Map();
+let pinnedMessages = new Map();
+let onlineUsers = new Map();
+let userSockets = new Map();
+
+// Default data initialization
+function initializeDefaultData() {
+    // Default users
+    const defaultUsers = [
+        { username: 'admin', password: 'admin123', isAdmin: true, isSuperAdmin: false },
+        { username: 'superadmin', password: 'super123', isAdmin: true, isSuperAdmin: true },
+        { username: 'alice', password: 'alice123', isAdmin: false, isSuperAdmin: false },
+        { username: 'bob', password: 'bob123', isAdmin: false, isSuperAdmin: false },
+        { username: 'charlie', password: 'charlie123', isAdmin: false, isSuperAdmin: false }
+    ];
+
+    defaultUsers.forEach(user => {
+        const hashedPassword = bcrypt.hashSync(user.password, 10);
+        users.set(user.username, {
+            ...user,
+            password: hashedPassword,
+            id: uuidv4(),
+            avatar: null,
+            joinedAt: new Date(),
+            lastSeen: new Date()
+        });
+    });
+
+    // Default groups
+    const defaultGroups = [
+        {
+            id: 'general',
+            name: 'General',
+            description: 'General discussion for everyone',
+            members: ['admin', 'superadmin', 'alice', 'bob', 'charlie'],
+            admins: ['admin', 'superadmin'],
+            createdBy: 'superadmin',
+            createdAt: new Date(),
+            isDefault: true
+        },
+        {
+            id: 'random',
+            name: 'Random',
+            description: 'Random chat and fun discussions',
+            members: ['alice', 'bob', 'charlie'],
+            admins: [],
+            createdBy: 'alice',
+            createdAt: new Date(),
+            isDefault: false
+        },
+        {
+            id: 'tech',
+            name: 'Tech Talk',
+            description: 'Technology discussions and updates',
+            members: ['admin', 'superadmin', 'charlie'],
+            admins: ['superadmin'],
+            createdBy: 'superadmin',
+            createdAt: new Date(),
+            isDefault: false
+        }
+    ];
+
+    defaultGroups.forEach(group => {
+        groups.set(group.id, group);
+        messages.set(group.id, []);
+        pinnedMessages.set(group.id, []);
+    });
+
+    // Default messages
+    const defaultMessages = [
+        {
+            id: uuidv4(),
+            groupId: 'general',
+            text: 'Welcome to Enhanced Group Chat! 🎉',
+            username: 'superadmin',
+            timestamp: Date.now() - 1800000,
+            type: 'text',
+            reactions: new Map([['👍', ['admin', 'alice']], ['❤️', ['bob']]]),
+            seenBy: ['admin', 'alice', 'bob'],
+            replyTo: null,
+            edited: false,
+            editedAt: null
+        },
+        {
+            id: uuidv4(),
+            groupId: 'general',
+            text: 'Thanks for setting this up! The UI looks amazing 🔥',
+            username: 'alice',
+            timestamp: Date.now() - 1200000,
+            type: 'text',
+            reactions: new Map([['🔥', ['superadmin', 'charlie']]]),
+            seenBy: ['superadmin', 'charlie'],
+            replyTo: null,
+            edited: false,
+            editedAt: null
+        },
+        {
+            id: uuidv4(),
+            groupId: 'tech',
+            text: 'Check out the new real-time features! Socket.io integration is working perfectly.',
+            username: 'charlie',
+            timestamp: Date.now() - 600000,
+            type: 'text',
+            reactions: new Map([['💯', ['admin', 'superadmin']]]),
+            seenBy: ['admin', 'superadmin'],
+            replyTo: null,
+            edited: false,
+            editedAt: null
+        }
+    ];
+
+    defaultMessages.forEach(message => {
+        const groupMessages = messages.get(message.groupId) || [];
+        groupMessages.push(message);
+        messages.set(message.groupId, groupMessages);
+    });
+
+    console.log('✅ Default data initialized');
+    console.log('📊 Users:', users.size);
+    console.log('🏠 Groups:', groups.size);
+    console.log('💬 Total Messages:', Array.from(messages.values()).reduce((total, msgs) => total + msgs.length, 0));
+}
 
 // Middleware
+app.use(helmet({
+    contentSecurityPolicy: {
+        directives: {
+            defaultSrc: ["'self'"],
+            styleSrc: ["'self'", "'unsafe-inline'"],
+            scriptSrc: ["'self'", "'unsafe-inline'", "https://cdnjs.cloudflare.com"],
+            imgSrc: ["'self'", "data:", "blob:"],
+            connectSrc: ["'self'", "ws:", "wss:"],
+            mediaSrc: ["'self'", "blob:"]
+        }
+    }
+}));
+
+app.use(compression());
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
-app.use(express.static('public'));
 
-// Create uploads directory if it doesn't exist
-const uploadsDir = path.join(__dirname, 'uploads');
-if (!fs.existsSync(uploadsDir)) {
-    fs.mkdirSync(uploadsDir, { recursive: true });
-}
+// Rate limiting
+const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 100, // limit each IP to 100 requests per windowMs
+    message: 'Too many requests from this IP, please try again later.'
+});
+app.use('/api/', limiter);
 
-// Serve uploaded files
-app.use('/uploads', express.static(uploadsDir));
-
-// Configure multer for file uploads
+// File upload configuration
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        cb(null, uploadsDir);
+        cb(null, UPLOAD_DIR);
     },
     filename: (req, file, cb) => {
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
@@ -50,7 +202,7 @@ const upload = multer({
         fileSize: 50 * 1024 * 1024 // 50MB limit
     },
     fileFilter: (req, file, cb) => {
-        const allowedTypes = /jpeg|jpg|png|gif|mp4|mov|avi|webm/;
+        const allowedTypes = /jpeg|jpg|png|gif|mp4|webm|ogg|mov/;
         const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
         const mimetype = allowedTypes.test(file.mimetype);
 
@@ -62,553 +214,613 @@ const upload = multer({
     }
 });
 
-// In-memory data storage (in production, use a proper database)
-const users = new Map();
-const groups = new Map();
-const messages = new Map(); // groupId -> messages[]
-const onlineUsers = new Set();
-const userSockets = new Map(); // username -> socketId
-const pinnedMessages = new Map(); // groupId -> pinned messages[]
-const messageReactions = new Map(); // messageId -> reactions{}
-const messageSeenBy = new Map(); // messageId -> username[]
-const typingUsers = new Map(); // groupId -> Set of usernames
+// Serve static files
+app.use(express.static('public'));
+app.use('/uploads', express.static(UPLOAD_DIR));
 
-// Default credentials
-const DEFAULT_USERS = {
-    'admin': { password: 'ADMIN', isSuperAdmin: true },
-    'aditya': { password: 'ADITYA', isAdmin: true },
-    'user1': { password: 'ADITYA', isAdmin: false },
-    'user2': { password: 'ADITYA', isAdmin: false },
-    'guest': { password: 'GUEST', isAdmin: false }
-};
+// JWT Authentication middleware
+function authenticateToken(req, res, next) {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
 
-// Initialize default group
-const DEFAULT_GROUP = {
-    id: 'general',
-    name: 'General Chat',
-    members: Object.keys(DEFAULT_USERS),
-    admins: ['admin', 'aditya'],
-    isDefault: true,
-    createdAt: new Date(),
-    memberCount: Object.keys(DEFAULT_USERS).length
-};
-
-groups.set('general', DEFAULT_GROUP);
-messages.set('general', []);
-pinnedMessages.set('general', []);
-
-// Initialize default users
-Object.entries(DEFAULT_USERS).forEach(([username, userData]) => {
-    users.set(username, {
-        username,
-        ...userData,
-        groups: ['general'],
-        createdAt: new Date()
-    });
-});
-
-// Helper functions
-function generateMessageId() {
-    return crypto.randomBytes(16).toString('hex');
-}
-
-function isUserAdmin(username, groupId) {
-    const group = groups.get(groupId);
-    const user = users.get(username);
-    return user?.isSuperAdmin || group?.admins.includes(username);
-}
-
-function canUserAccessGroup(username, groupId) {
-    const group = groups.get(groupId);
-    return group?.members.includes(username);
-}
-
-function cleanupExpiredPins() {
-    const now = new Date();
-    for (const [groupId, pins] of pinnedMessages.entries()) {
-        const validPins = pins.filter(pin => new Date(pin.expiresAt) > now);
-        pinnedMessages.set(groupId, validPins);
-    }
-}
-
-// Run cleanup every hour
-setInterval(cleanupExpiredPins, 60 * 60 * 1000);
-
-// Authentication endpoint
-app.post('/api/auth', (req, res) => {
-    const { username, password } = req.body;
-
-    if (!username || !password) {
-        return res.json({ success: false, message: 'Username and password required' });
+    if (!token) {
+        return res.status(401).json({ error: 'Access token required' });
     }
 
-    const user = users.get(username.toLowerCase());
-    
-    if (!user || user.password !== password) {
-        return res.json({ success: false, message: 'Invalid credentials' });
-    }
-
-    const token = crypto.randomBytes(32).toString('hex');
-    const userData = {
-        username: user.username,
-        isAdmin: user.isAdmin || false,
-        isSuperAdmin: user.isSuperAdmin || false,
-        groups: user.groups || ['general'],
-        token
-    };
-
-    res.json({ success: true, user: userData, token });
-});
-
-// Get user groups
-app.get('/api/groups/:username', (req, res) => {
-    const username = req.params.username.toLowerCase();
-    const user = users.get(username);
-    
-    if (!user) {
-        return res.json([]);
-    }
-
-    const userGroups = [];
-    for (const [groupId, group] of groups.entries()) {
-        if (group.members.includes(username)) {
-            userGroups.push({
-                id: groupId,
-                name: group.name,
-                memberCount: group.memberCount,
-                isAdmin: group.admins.includes(username),
-                isDefault: group.isDefault || false,
-                createdAt: group.createdAt
-            });
+    jwt.verify(token, JWT_SECRET, (err, user) => {
+        if (err) {
+            return res.status(403).json({ error: 'Invalid or expired token' });
         }
-    }
-
-    res.json(userGroups);
-});
-
-// Get group messages
-app.get('/api/groups/:groupId/messages', (req, res) => {
-    const { groupId } = req.params;
-    const groupMessages = messages.get(groupId) || [];
-    
-    // Add reactions and seen status to messages
-    const messagesWithMeta = groupMessages.map(msg => {
-        return {
-            ...msg,
-            reactions: messageReactions.get(msg.id) || {},
-            seenBy: messageSeenBy.get(msg.id) || []
-        };
+        req.user = user;
+        next();
     });
+}
+
+// Socket.io authentication middleware
+function authenticateSocket(socket, next) {
+    const token = socket.handshake.auth.token;
     
-    res.json(messagesWithMeta.slice(-50)); // Return last 50 messages
-});
-
-// Get pinned messages
-app.get('/api/groups/:groupId/pinned', (req, res) => {
-    const { groupId } = req.params;
-    const pins = pinnedMessages.get(groupId) || [];
-    const validPins = pins.filter(pin => new Date(pin.expiresAt) > new Date());
-    res.json(validPins);
-});
-
-// Upload media
-app.post('/api/upload-media', upload.single('media'), (req, res) => {
-    if (!req.file) {
-        return res.json({ success: false, message: 'No file uploaded' });
+    if (!token) {
+        return next(new Error('Authentication token required'));
     }
 
-    const mediaUrl = `/uploads/${req.file.filename}`;
-    const mediaType = req.file.mimetype.startsWith('image/') ? 'image' : 'video';
-
-    res.json({
-        success: true,
-        mediaUrl: mediaUrl,
-        type: mediaType,
-        filename: req.file.filename
+    jwt.verify(token, JWT_SECRET, (err, decoded) => {
+        if (err) {
+            return next(new Error('Invalid token'));
+        }
+        socket.userId = decoded.username;
+        next();
     });
-});
+}
 
-// Download media
-app.get('/api/download/:filename', (req, res) => {
-    const filename = req.params.filename;
-    const filepath = path.join(uploadsDir, filename);
-    
-    if (fs.existsSync(filepath)) {
-        res.download(filepath);
-    } else {
-        res.status(404).json({ error: 'File not found' });
-    }
-});
+// API Routes
 
-// Delete message
-app.delete('/api/messages/:groupId/:messageId', (req, res) => {
-    const { groupId, messageId } = req.params;
-    const { deletedBy, adminToken } = req.body;
+// Authentication routes
+app.post('/api/auth/login', async (req, res) => {
+    try {
+        const { username, password } = req.body;
 
-    if (!deletedBy) {
-        return res.json({ success: false, message: 'deletedBy required' });
-    }
-
-    const groupMessages = messages.get(groupId) || [];
-    const messageIndex = groupMessages.findIndex(msg => msg.id === messageId);
-    
-    if (messageIndex === -1) {
-        return res.json({ success: false, message: 'Message not found' });
-    }
-
-    const message = groupMessages[messageIndex];
-    const user = users.get(deletedBy.toLowerCase());
-    
-    // Check permissions
-    if (message.username !== deletedBy && !user?.isSuperAdmin && !isUserAdmin(deletedBy, groupId)) {
-        return res.json({ success: false, message: 'Permission denied' });
-    }
-
-    // Remove message
-    groupMessages.splice(messageIndex, 1);
-    messages.set(groupId, groupMessages);
-
-    // Clean up related data
-    messageReactions.delete(messageId);
-    messageSeenBy.delete(messageId);
-
-    // Notify clients
-    io.to(groupId).emit('messageDeleted', { messageId, groupId, deletedBy });
-
-    res.json({ success: true });
-});
-
-// Pin message
-app.post('/api/messages/:groupId/:messageId/pin', (req, res) => {
-    const { groupId, messageId } = req.params;
-    const { pinnedBy, duration, adminToken } = req.body;
-
-    if (!isUserAdmin(pinnedBy, groupId)) {
-        return res.json({ success: false, message: 'Admin permissions required' });
-    }
-
-    const groupMessages = messages.get(groupId) || [];
-    const message = groupMessages.find(msg => msg.id === messageId);
-    
-    if (!message) {
-        return res.json({ success: false, message: 'Message not found' });
-    }
-
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + (duration || 1));
-
-    const pinnedMessage = {
-        ...message,
-        pinnedBy,
-        pinnedAt: new Date(),
-        expiresAt
-    };
-
-    const pins = pinnedMessages.get(groupId) || [];
-    pins.push(pinnedMessage);
-    pinnedMessages.set(groupId, pins);
-
-    // Notify clients
-    io.to(groupId).emit('messagePinned', { groupId, pinnedMessages: pins });
-
-    res.json({ success: true });
-});
-
-// Socket.IO connection handling
-io.on('connection', (socket) => {
-    console.log('User connected:', socket.id);
-    let currentUser = null;
-    let currentGroups = new Set();
-
-    // User authentication
-    socket.on('authenticate', (userData) => {
-        currentUser = userData;
-        onlineUsers.add(userData.username);
-        userSockets.set(userData.username, socket.id);
-        
-        console.log(`${userData.username} authenticated`);
-        
-        // Broadcast updated online users
-        io.emit('onlineUsers', Array.from(onlineUsers));
-    });
-
-    // Join group
-    socket.on('joinGroup', (groupId) => {
-        if (!currentUser || !canUserAccessGroup(currentUser.username, groupId)) {
-            return;
+        if (!username || !password) {
+            return res.status(400).json({ error: 'Username and password are required' });
         }
 
-        socket.join(groupId);
-        currentGroups.add(groupId);
-        
-        console.log(`${currentUser.username} joined group ${groupId}`);
-        
-        // Send recent messages
-        const groupMessages = messages.get(groupId) || [];
-        const recentMessages = groupMessages.slice(-20).map(msg => ({
-            ...msg,
-            reactions: messageReactions.get(msg.id) || {},
-            seenBy: messageSeenBy.get(msg.id) || []
-        }));
-        
-        socket.emit('groupMessages', { groupId, messages: recentMessages });
-        
-        // Send pinned messages
-        const pins = pinnedMessages.get(groupId) || [];
-        const validPins = pins.filter(pin => new Date(pin.expiresAt) > new Date());
-        socket.emit('messagePinned', { groupId, pinnedMessages: validPins });
-    });
+        const user = users.get(username.toLowerCase());
+        if (!user) {
+            return res.status(401).json({ error: 'Invalid credentials' });
+        }
 
-    // Leave group
-    socket.on('leaveGroup', (groupId) => {
-        socket.leave(groupId);
-        currentGroups.delete(groupId);
-        
-        // Remove from typing users
-        const typingSet = typingUsers.get(groupId);
-        if (typingSet && currentUser) {
-            typingSet.delete(currentUser.username);
-            if (typingSet.size === 0) {
-                typingUsers.delete(groupId);
+        const isValidPassword = bcrypt.compareSync(password, user.password);
+        if (!isValidPassword) {
+            return res.status(401).json({ error: 'Invalid credentials' });
+        }
+
+        // Update last seen
+        user.lastSeen = new Date();
+        users.set(username.toLowerCase(), user);
+
+        const token = jwt.sign(
+            { 
+                username: user.username, 
+                isAdmin: user.isAdmin, 
+                isSuperAdmin: user.isSuperAdmin 
+            }, 
+            JWT_SECRET, 
+            { expiresIn: '24h' }
+        );
+
+        res.json({
+            success: true,
+            token,
+            user: {
+                username: user.username,
+                isAdmin: user.isAdmin,
+                isSuperAdmin: user.isSuperAdmin,
+                avatar: user.avatar
             }
+        });
+    } catch (error) {
+        console.error('Login error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+app.post('/api/auth/register', async (req, res) => {
+    try {
+        const { username, password } = req.body;
+
+        if (!username || !password) {
+            return res.status(400).json({ error: 'Username and password are required' });
         }
+
+        if (username.length < 3 || password.length < 6) {
+            return res.status(400).json({ error: 'Username must be at least 3 characters and password at least 6 characters' });
+        }
+
+        if (users.has(username.toLowerCase())) {
+            return res.status(409).json({ error: 'Username already exists' });
+        }
+
+        const hashedPassword = bcrypt.hashSync(password, 10);
+        const newUser = {
+            id: uuidv4(),
+            username: username,
+            password: hashedPassword,
+            isAdmin: false,
+            isSuperAdmin: false,
+            avatar: null,
+            joinedAt: new Date(),
+            lastSeen: new Date()
+        };
+
+        users.set(username.toLowerCase(), newUser);
+
+        // Add user to default group
+        const generalGroup = groups.get('general');
+        if (generalGroup) {
+            generalGroup.members.push(username);
+            groups.set('general', generalGroup);
+        }
+
+        const token = jwt.sign(
+            { 
+                username: newUser.username, 
+                isAdmin: newUser.isAdmin, 
+                isSuperAdmin: newUser.isSuperAdmin 
+            }, 
+            JWT_SECRET, 
+            { expiresIn: '24h' }
+        );
+
+        res.status(201).json({
+            success: true,
+            token,
+            user: {
+                username: newUser.username,
+                isAdmin: newUser.isAdmin,
+                isSuperAdmin: newUser.isSuperAdmin,
+                avatar: newUser.avatar
+            }
+        });
+    } catch (error) {
+        console.error('Registration error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Group routes
+app.get('/api/groups', authenticateToken, (req, res) => {
+    try {
+        const userGroups = Array.from(groups.values()).filter(group => 
+            group.members.includes(req.user.username)
+        ).map(group => ({
+            id: group.id,
+            name: group.name,
+            description: group.description,
+            memberCount: group.members.length,
+            isAdmin: group.admins.includes(req.user.username) || req.user.isSuperAdmin,
+            isDefault: group.isDefault
+        }));
+
+        res.json({ groups: userGroups });
+    } catch (error) {
+        console.error('Get groups error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+app.post('/api/groups', authenticateToken, (req, res) => {
+    try {
+        const { name, description } = req.body;
+
+        if (!name || name.trim().length === 0) {
+            return res.status(400).json({ error: 'Group name is required' });
+        }
+
+        const groupId = name.toLowerCase().replace(/[^a-z0-9]/g, '-');
+        
+        if (groups.has(groupId)) {
+            return res.status(409).json({ error: 'Group with this name already exists' });
+        }
+
+        const newGroup = {
+            id: groupId,
+            name: name.trim(),
+            description: description || '',
+            members: [req.user.username],
+            admins: [req.user.username],
+            createdBy: req.user.username,
+            createdAt: new Date(),
+            isDefault: false
+        };
+
+        groups.set(groupId, newGroup);
+        messages.set(groupId, []);
+        pinnedMessages.set(groupId, []);
+
+        res.status(201).json({
+            success: true,
+            group: {
+                id: newGroup.id,
+                name: newGroup.name,
+                description: newGroup.description,
+                memberCount: newGroup.members.length,
+                isAdmin: true,
+                isDefault: false
+            }
+        });
+
+        // Notify all users about new group
+        io.emit('groupCreated', {
+            group: newGroup,
+            createdBy: req.user.username
+        });
+
+    } catch (error) {
+        console.error('Create group error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// Message routes
+app.get('/api/groups/:groupId/messages', authenticateToken, (req, res) => {
+    try {
+        const { groupId } = req.params;
+        const group = groups.get(groupId);
+
+        if (!group) {
+            return res.status(404).json({ error: 'Group not found' });
+        }
+
+        if (!group.members.includes(req.user.username)) {
+            return res.status(403).json({ error: 'Access denied' });
+        }
+
+        const groupMessages = messages.get(groupId) || [];
+        const groupPinnedMessages = pinnedMessages.get(groupId) || [];
+
+        // Convert Map objects to regular objects for JSON response
+        const formattedMessages = groupMessages.map(msg => ({
+            ...msg,
+            reactions: Object.fromEntries(msg.reactions || new Map()),
+            seenBy: msg.seenBy || []
+        }));
+
+        res.json({
+            messages: formattedMessages,
+            pinnedMessages: groupPinnedMessages
+        });
+    } catch (error) {
+        console.error('Get messages error:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+// File upload route
+app.post('/api/upload', authenticateToken, upload.single('file'), (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: 'No file uploaded' });
+        }
+
+        const fileUrl = `/uploads/${req.file.filename}`;
+        const fileType = req.file.mimetype.startsWith('image/') ? 'image' : 'video';
+
+        res.json({
+            success: true,
+            fileUrl,
+            fileType,
+            filename: req.file.filename,
+            originalName: req.file.originalname,
+            size: req.file.size
+        });
+    } catch (error) {
+        console.error('Upload error:', error);
+        res.status(500).json({ error: 'File upload failed' });
+    }
+});
+
+// Socket.io connection handling
+io.use(authenticateSocket);
+
+io.on('connection', (socket) => {
+    const username = socket.userId;
+    console.log(`👤 User ${username} connected`);
+
+    // Store socket reference
+    userSockets.set(username, socket.id);
+    onlineUsers.set(username, {
+        username,
+        socketId: socket.id,
+        connectedAt: new Date()
     });
+
+    // Join user's groups
+    const userGroups = Array.from(groups.values()).filter(group => 
+        group.members.includes(username)
+    );
+    
+    userGroups.forEach(group => {
+        socket.join(group.id);
+    });
+
+    // Send online users list
+    const onlineUsersList = Array.from(onlineUsers.keys());
+    io.emit('onlineUsers', onlineUsersList);
 
     // Handle new message
     socket.on('newMessage', (data) => {
-        if (!currentUser || !data.text || !data.groupId) return;
-        
-        if (!canUserAccessGroup(currentUser.username, data.groupId)) {
-            return;
+        try {
+            const group = groups.get(data.groupId);
+            if (!group || !group.members.includes(username)) {
+                socket.emit('error', { message: 'Access denied' });
+                return;
+            }
+
+            const user = users.get(username);
+            const messageId = uuidv4();
+            
+            const message = {
+                id: messageId,
+                groupId: data.groupId,
+                text: data.text || '',
+                username: username,
+                timestamp: Date.now(),
+                type: data.type || 'text',
+                mediaUrl: data.mediaUrl || null,
+                reactions: new Map(),
+                seenBy: [],
+                replyTo: data.replyTo || null,
+                edited: false,
+                editedAt: null,
+                isAdmin: user.isAdmin,
+                isSuperAdmin: user.isSuperAdmin
+            };
+
+            // Store message
+            const groupMessages = messages.get(data.groupId) || [];
+            groupMessages.push(message);
+            messages.set(data.groupId, groupMessages);
+
+            // Format for broadcast
+            const broadcastMessage = {
+                ...message,
+                reactions: Object.fromEntries(message.reactions),
+                seenBy: message.seenBy
+            };
+
+            // Broadcast to group members
+            io.to(data.groupId).emit('message', broadcastMessage);
+            
+            console.log(`💬 Message sent by ${username} in ${data.groupId}`);
+        } catch (error) {
+            console.error('Message error:', error);
+            socket.emit('error', { message: 'Failed to send message' });
         }
-
-        const message = {
-            id: generateMessageId(),
-            username: currentUser.username,
-            text: data.text.trim().substring(0, 1000), // Limit message length
-            timestamp: new Date(),
-            groupId: data.groupId,
-            type: 'text',
-            isAdmin: currentUser.isAdmin || false,
-            isSuperAdmin: currentUser.isSuperAdmin || false,
-            replyTo: data.replyTo || null
-        };
-
-        // Store message
-        const groupMessages = messages.get(data.groupId) || [];
-        groupMessages.push(message);
-        
-        // Keep only last 1000 messages per group
-        if (groupMessages.length > 1000) {
-            groupMessages.splice(0, groupMessages.length - 1000);
-        }
-        
-        messages.set(data.groupId, groupMessages);
-
-        // Initialize seen status
-        messageSeenBy.set(message.id, []);
-
-        // Broadcast to group
-        io.to(data.groupId).emit('messageReceived', message);
-        
-        console.log(`Message from ${currentUser.username} in ${data.groupId}: ${data.text.substring(0, 50)}...`);
-    });
-
-    // Handle media message
-    socket.on('newMediaMessage', (data) => {
-        if (!currentUser || !data.mediaUrl || !data.groupId) return;
-        
-        if (!canUserAccessGroup(currentUser.username, data.groupId)) {
-            return;
-        }
-
-        const message = {
-            id: generateMessageId(),
-            username: currentUser.username,
-            mediaUrl: data.mediaUrl,
-            timestamp: new Date(),
-            groupId: data.groupId,
-            type: data.mediaType || 'image',
-            isAdmin: currentUser.isAdmin || false,
-            isSuperAdmin: currentUser.isSuperAdmin || false,
-            replyTo: data.replyTo || null
-        };
-
-        // Store message
-        const groupMessages = messages.get(data.groupId) || [];
-        groupMessages.push(message);
-        messages.set(data.groupId, groupMessages);
-
-        // Initialize seen status
-        messageSeenBy.set(message.id, []);
-
-        // Broadcast to group
-        io.to(data.groupId).emit('messageReceived', message);
-        
-        console.log(`Media message from ${currentUser.username} in ${data.groupId}`);
     });
 
     // Handle typing
     socket.on('typing', (data) => {
-        if (!currentUser || !data.groupId) return;
-        
-        const { isTyping, groupId } = data;
-        
-        if (!typingUsers.has(groupId)) {
-            typingUsers.set(groupId, new Set());
-        }
-        
-        const typingSet = typingUsers.get(groupId);
-        
-        if (isTyping) {
-            typingSet.add(currentUser.username);
-        } else {
-            typingSet.delete(currentUser.username);
-        }
-        
-        // Broadcast to others in group
-        socket.to(groupId).emit('userTyping', {
-            username: currentUser.username,
-            isTyping,
-            groupId
+        socket.to(data.groupId).emit('userTyping', {
+            username: username,
+            groupId: data.groupId,
+            isTyping: true
+        });
+    });
+
+    socket.on('stopTyping', (data) => {
+        socket.to(data.groupId).emit('userTyping', {
+            username: username,
+            groupId: data.groupId,
+            isTyping: false
         });
     });
 
     // Handle reactions
-    socket.on('addReaction', (data) => {
-        if (!currentUser) return;
-        
-        const { messageId, groupId, emoji, username } = data;
-        
-        if (!canUserAccessGroup(currentUser.username, groupId)) {
-            return;
-        }
-
-        let reactions = messageReactions.get(messageId) || {};
-        
-        if (!reactions[emoji]) {
-            reactions[emoji] = [];
-        }
-        
-        if (!reactions[emoji].includes(username)) {
-            reactions[emoji].push(username);
-        }
-        
-        messageReactions.set(messageId, reactions);
-        
-        io.to(groupId).emit('reactionAdded', {
-            messageId,
-            groupId,
-            reactions
-        });
-    });
-
-    // Handle toggle reaction
     socket.on('toggleReaction', (data) => {
-        if (!currentUser) return;
-        
-        const { messageId, groupId, emoji, username } = data;
-        
-        if (!canUserAccessGroup(currentUser.username, groupId)) {
-            return;
-        }
+        try {
+            const { messageId, emoji, groupId } = data;
+            const groupMessages = messages.get(groupId);
+            
+            if (!groupMessages) return;
 
-        let reactions = messageReactions.get(messageId) || {};
-        
-        if (!reactions[emoji]) {
-            reactions[emoji] = [];
-        }
-        
-        const userIndex = reactions[emoji].indexOf(username);
-        if (userIndex > -1) {
-            reactions[emoji].splice(userIndex, 1);
-            if (reactions[emoji].length === 0) {
-                delete reactions[emoji];
+            const messageIndex = groupMessages.findIndex(msg => msg.id === messageId);
+            if (messageIndex === -1) return;
+
+            const message = groupMessages[messageIndex];
+            
+            if (!message.reactions.has(emoji)) {
+                message.reactions.set(emoji, []);
             }
-        } else {
-            reactions[emoji].push(username);
+
+            const users = message.reactions.get(emoji);
+            const userIndex = users.indexOf(username);
+
+            if (userIndex > -1) {
+                users.splice(userIndex, 1);
+                if (users.length === 0) {
+                    message.reactions.delete(emoji);
+                }
+            } else {
+                users.push(username);
+            }
+
+            // Update message
+            groupMessages[messageIndex] = message;
+            messages.set(groupId, groupMessages);
+
+            // Broadcast reaction update
+            io.to(groupId).emit('reactionUpdate', {
+                messageId,
+                reactions: Object.fromEntries(message.reactions)
+            });
+        } catch (error) {
+            console.error('Reaction error:', error);
         }
-        
-        messageReactions.set(messageId, reactions);
-        
-        io.to(groupId).emit('reactionAdded', {
-            messageId,
-            groupId,
-            reactions
-        });
     });
 
-    // Handle message seen
-    socket.on('markSeen', (data) => {
-        if (!currentUser) return;
-        
-        const { messageId, groupId } = data;
-        
-        let seenBy = messageSeenBy.get(messageId) || [];
-        if (!seenBy.includes(currentUser.username)) {
-            seenBy.push(currentUser.username);
-            messageSeenBy.set(messageId, seenBy);
+    // Handle message deletion
+    socket.on('deleteMessage', (data) => {
+        try {
+            const { messageId, groupId } = data;
+            const group = groups.get(groupId);
+            const groupMessages = messages.get(groupId);
             
-            io.to(groupId).emit('messageSeenUpdate', {
-                messageId,
-                groupId,
-                seenBy
+            if (!group || !groupMessages) return;
+
+            const messageIndex = groupMessages.findIndex(msg => msg.id === messageId);
+            if (messageIndex === -1) return;
+
+            const message = groupMessages[messageIndex];
+            const user = users.get(username);
+
+            // Check permissions
+            const canDelete = message.username === username || 
+                             user.isSuperAdmin || 
+                             group.admins.includes(username);
+
+            if (!canDelete) {
+                socket.emit('error', { message: 'Permission denied' });
+                return;
+            }
+
+            // Remove message
+            groupMessages.splice(messageIndex, 1);
+            messages.set(groupId, groupMessages);
+
+            // Broadcast deletion
+            io.to(groupId).emit('messageDeleted', { messageId });
+        } catch (error) {
+            console.error('Delete message error:', error);
+        }
+    });
+
+    // Handle message pinning
+    socket.on('pinMessage', (data) => {
+        try {
+            const { messageId, groupId, duration } = data;
+            const group = groups.get(groupId);
+            const groupMessages = messages.get(groupId);
+            
+            if (!group || !groupMessages) return;
+
+            const user = users.get(username);
+            const canPin = user.isSuperAdmin || group.admins.includes(username);
+
+            if (!canPin) {
+                socket.emit('error', { message: 'Permission denied' });
+                return;
+            }
+
+            const message = groupMessages.find(msg => msg.id === messageId);
+            if (!message) return;
+
+            const pinnedMessage = {
+                id: messageId,
+                text: message.text,
+                username: message.username,
+                pinnedBy: username,
+                pinnedAt: new Date(),
+                expiresAt: new Date(Date.now() + (duration * 24 * 60 * 60 * 1000))
+            };
+
+            const groupPinned = pinnedMessages.get(groupId) || [];
+            groupPinned.push(pinnedMessage);
+            pinnedMessages.set(groupId, groupPinned);
+
+            // Broadcast pin update
+            io.to(groupId).emit('pinnedMessagesUpdate', groupPinned);
+        } catch (error) {
+            console.error('Pin message error:', error);
+        }
+    });
+
+    // Handle join group
+    socket.on('joinGroup', (data) => {
+        const { groupId } = data;
+        const group = groups.get(groupId);
+        
+        if (group && group.members.includes(username)) {
+            socket.join(groupId);
+            
+            // Mark messages as seen
+            const groupMessages = messages.get(groupId) || [];
+            groupMessages.forEach(msg => {
+                if (!msg.seenBy.includes(username)) {
+                    msg.seenBy.push(username);
+                }
+            });
+            messages.set(groupId, groupMessages);
+            
+            // Broadcast seen status update
+            socket.to(groupId).emit('messagesSeen', {
+                username: username,
+                groupId: groupId
             });
         }
     });
 
     // Handle disconnect
     socket.on('disconnect', () => {
-        if (currentUser) {
-            onlineUsers.delete(currentUser.username);
-            userSockets.delete(currentUser.username);
-            
-            // Remove from typing users
-            for (const [groupId, typingSet] of typingUsers.entries()) {
-                typingSet.delete(currentUser.username);
-                if (typingSet.size === 0) {
-                    typingUsers.delete(groupId);
-                }
-            }
-            
-            // Broadcast updated online users
-            io.emit('onlineUsers', Array.from(onlineUsers));
-            
-            console.log(`${currentUser.username} disconnected`);
+        console.log(`👤 User ${username} disconnected`);
+        
+        userSockets.delete(username);
+        onlineUsers.delete(username);
+        
+        // Update user's last seen
+        const user = users.get(username);
+        if (user) {
+            user.lastSeen = new Date();
+            users.set(username, user);
         }
+
+        // Broadcast updated online users list
+        const onlineUsersList = Array.from(onlineUsers.keys());
+        io.emit('onlineUsers', onlineUsersList);
     });
 });
 
 // Error handling middleware
 app.use((error, req, res, next) => {
-    console.error('Error:', error);
+    console.error('Express error:', error);
+    
+    if (error instanceof multer.MulterError) {
+        if (error.code === 'LIMIT_FILE_SIZE') {
+            return res.status(413).json({ error: 'File too large. Maximum size is 50MB.' });
+        }
+    }
+    
     res.status(500).json({ error: 'Internal server error' });
 });
 
-// Start server
-server.listen(PORT, () => {
-    console.log(`🚀 Enhanced Group Chat Server running on port ${PORT}`);
-    console.log(`📁 Uploads directory: ${uploadsDir}`);
-    console.log(`👥 Default users: ${Object.keys(DEFAULT_USERS).join(', ')}`);
-    console.log(`🏠 Default group: ${DEFAULT_GROUP.name}`);
-    
-    // Clean up expired pins on startup
-    cleanupExpiredPins();
+// 404 handler
+app.use('*', (req, res) => {
+    res.status(404).json({ error: 'Route not found' });
 });
+
+// Cleanup function for expired pinned messages
+function cleanupExpiredPins() {
+    const now = new Date();
+    
+    for (const [groupId, pins] of pinnedMessages.entries()) {
+        const activePins = pins.filter(pin => new Date(pin.expiresAt) > now);
+        
+        if (activePins.length !== pins.length) {
+            pinnedMessages.set(groupId, activePins);
+            
+            // Broadcast update to group
+            io.to(groupId).emit('pinnedMessagesUpdate', activePins);
+        }
+    }
+}
+
+// Run cleanup every hour
+setInterval(cleanupExpiredPins, 60 * 60 * 1000);
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
-    console.log('Received SIGTERM, shutting down gracefully');
+    console.log('🛑 Received SIGTERM, shutting down gracefully...');
+    
+    // Save data to files before shutdown (if needed)
+    // This is where you'd implement data persistence
+    
     server.close(() => {
-        console.log('Server closed');
+        console.log('✅ Server closed');
         process.exit(0);
     });
 });
 
-process.on('SIGINT', () => {
-    console.log('Received SIGINT, shutting down gracefully');
-    server.close(() => {
-        console.log('Server closed');
-        process.exit(0);
-    });
+// Initialize default data and start server
+initializeDefaultData();
+
+server.listen(PORT, () => {
+    console.log('🚀 Enhanced Group Chat Server Started');
+    console.log(`📍 Server running on http://localhost:${PORT}`);
+    console.log(`🔧 Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log('💡 Default users created:');
+    console.log('   - superadmin:super123 (Super Admin)');
+    console.log('   - admin:admin123 (Admin)');
+    console.log('   - alice:alice123, bob:bob123, charlie:charlie123 (Regular users)');
+    console.log('✨ Ready to accept connections!');
 });
+
+module.exports = { app, server, io };
